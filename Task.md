@@ -25,8 +25,8 @@
 - [x] `src/models/Review.js` (with denormalization hooks)
 - [x] `src/models/Enquiry.js`
 - [x] ADRs 0001–0004
-- [ ] `README.md`
-- [ ] End-to-end verification (boot + health + DB)
+- [x] `README.md`
+- [x] End-to-end verification (boot + health + DB + graceful shutdown + misconfig fail-fast)
 
 ## Phase 2 — Auth, CRUD, Search (Planned)
 
