@@ -1,0 +1,27 @@
+{
+  "name": "tuition-finder-server",
+  "version": "0.1.0",
+  "description": "Backend for the Tuition Finder platform",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "keywords": [
+    "tuition",
+    "coaching",
+    "express",
+    "mongodb"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weloin-soumyadip/Coaching-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/weloin-soumyadip/Coaching-app/issues"
+  },
+  "homepage": "https://github.com/weloin-soumyadip/Coaching-app#readme"
+}
