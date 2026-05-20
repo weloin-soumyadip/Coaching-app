@@ -23,5 +23,14 @@
   "bugs": {
     "url": "https://github.com/weloin-soumyadip/Coaching-app/issues"
   },
-  "homepage": "https://github.com/weloin-soumyadip/Coaching-app#readme"
+  "homepage": "https://github.com/weloin-soumyadip/Coaching-app#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "mongoose": "^9.6.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
 }
