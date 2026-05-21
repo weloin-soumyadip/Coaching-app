@@ -1,6 +1,20 @@
 // Central environment configuration — single source of truth.
-// All other modules should require this instead of reading process.env directly.
-module.exports = {
+// All other modules should import this instead of reading process.env directly.
+
+interface Config {
+  env: string;
+  port: number;
+  mongoUri: string | undefined;
+  jwt: {
+    secret: string | undefined;
+    expiresIn: string;
+  };
+  cors: {
+    origin: string[];
+  };
+}
+
+const config: Config = {
   env: process.env.NODE_ENV || 'development',
   port: Number(process.env.PORT) || 5000,
   mongoUri: process.env.MONGO_URI,
@@ -12,3 +26,5 @@ module.exports = {
     origin: (process.env.CORS_ORIGIN || '').split(',').filter(Boolean),
   },
 };
+
+export default config;

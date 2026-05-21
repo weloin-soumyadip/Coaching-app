@@ -1,19 +1,19 @@
-const mongoose = require('mongoose');
+import { Schema, model, type InferSchemaType, type Model, type HydratedDocument } from 'mongoose';
 
-const enquirySchema = new mongoose.Schema(
+const enquirySchema = new Schema(
   {
     coachingCenter: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: 'CoachingCenter',
       required: true,
     },
     // Phase 1 requires login — anonymous enquiries are out of scope.
     student: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: 'User',
       required: true,
     },
-    subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject' },
+    subject: { type: Schema.Types.ObjectId, ref: 'Subject' },
     message: { type: String, required: true, trim: true },
     status: {
       type: String,
@@ -28,4 +28,9 @@ const enquirySchema = new mongoose.Schema(
 enquirySchema.index({ student: 1 });
 enquirySchema.index({ coachingCenter: 1, status: 1 });
 
-module.exports = mongoose.model('Enquiry', enquirySchema);
+export type EnquiryAttrs = InferSchemaType<typeof enquirySchema>;
+export type EnquiryDoc = HydratedDocument<EnquiryAttrs>;
+export type EnquiryModel = Model<EnquiryAttrs>;
+
+const Enquiry: EnquiryModel = model<EnquiryAttrs>('Enquiry', enquirySchema);
+export default Enquiry;

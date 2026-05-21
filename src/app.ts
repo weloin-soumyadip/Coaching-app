@@ -1,10 +1,10 @@
-const express = require('express');
-const cors = require('cors');
+import express, { type Request, type Response } from 'express';
+import cors from 'cors';
 
-const config = require('./config');
-const healthRoutes = require('./routes/health.routes');
-const notFound = require('./middleware/notFound');
-const errorHandler = require('./middleware/errorHandler');
+import config from './config/index.js';
+import healthRoutes from './routes/health.routes.js';
+import notFound from './middleware/notFound.js';
+import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
 
@@ -18,9 +18,9 @@ app.use(
   })
 );
 
-app.get("/", (req, res)=> {
+app.get('/', (_req: Request, res: Response) => {
   res.status(200).json({
-    message: "Hello from coaching app!"
+    message: 'Hello from coaching app!',
   });
 });
 
@@ -31,4 +31,4 @@ app.use('/api/health', healthRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-module.exports = app;
+export default app;

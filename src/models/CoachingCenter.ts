@@ -1,9 +1,9 @@
-const mongoose = require('mongoose');
+import { Schema, model, type InferSchemaType, type Model, type HydratedDocument } from 'mongoose';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/; // 'HH:MM' 24-hour
 
-const slugify = (str) =>
+const slugify = (str: string): string =>
   str
     .toLowerCase()
     .trim()
@@ -12,14 +12,14 @@ const slugify = (str) =>
     .replace(/-+/g, '-');
 
 // GeoJSON Point sub-schema — paired with a 2dsphere index below.
-const pointSchema = new mongoose.Schema(
+const pointSchema = new Schema(
   {
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: {
       type: [Number], // [lng, lat] — GeoJSON convention
       required: true,
       validate: {
-        validator: (v) => Array.isArray(v) && v.length === 2,
+        validator: (v: unknown) => Array.isArray(v) && v.length === 2,
         message: 'Coordinates must be [lng, lat]',
       },
     },
@@ -28,7 +28,7 @@ const pointSchema = new mongoose.Schema(
 );
 
 // Per-day timing entry. closed=true overrides openTime/closeTime.
-const timingSchema = new mongoose.Schema(
+const timingSchema = new Schema(
   {
     day: {
       type: String,
@@ -42,13 +42,13 @@ const timingSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const coachingCenterSchema = new mongoose.Schema(
+const coachingCenterSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
     slug: { type: String, unique: true, lowercase: true },
     description: { type: String, trim: true },
     owner: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: 'User',
       required: true,
     },
@@ -68,7 +68,7 @@ const coachingCenterSchema = new mongoose.Schema(
       match: [EMAIL_REGEX, 'Please provide a valid email'],
     },
     website: { type: String, trim: true },
-    subjectsOffered: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subject' }],
+    subjectsOffered: [{ type: Schema.Types.ObjectId, ref: 'Subject' }],
     boards: [
       {
         type: String,
@@ -97,10 +97,14 @@ const coachingCenterSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+export type CoachingCenterAttrs = InferSchemaType<typeof coachingCenterSchema>;
+export type CoachingCenterDoc = HydratedDocument<CoachingCenterAttrs>;
+export type CoachingCenterModel = Model<CoachingCenterAttrs>;
+
 // Derive slug from name + city; suffix with a short random string to avoid
 // collisions across centers with the same name in the same city.
 // Mongoose 8+/9+ uses promise-style middleware — no `next` callback.
-coachingCenterSchema.pre('validate', function () {
+coachingCenterSchema.pre('validate', function (this: CoachingCenterDoc) {
   if (this.isModified('name') || this.isModified('city') || !this.slug) {
     const base = slugify(`${this.name}-${this.city || ''}`);
     const suffix = Math.random().toString(36).slice(2, 6);
@@ -116,4 +120,8 @@ coachingCenterSchema.index({ subjectsOffered: 1 });
 coachingCenterSchema.index({ city: 1, isActive: 1, isVerified: 1 });
 coachingCenterSchema.index({ averageRating: -1 });
 
-module.exports = mongoose.model('CoachingCenter', coachingCenterSchema);
+const CoachingCenter: CoachingCenterModel = model<CoachingCenterAttrs>(
+  'CoachingCenter',
+  coachingCenterSchema
+);
+export default CoachingCenter;

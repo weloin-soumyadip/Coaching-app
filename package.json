@@ -2,10 +2,13 @@
   "name": "tuition-finder-server",
   "version": "0.1.0",
   "description": "Backend for the Tuition Finder platform",
-  "main": "src/server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
   },
   "keywords": [
     "tuition",
@@ -15,7 +18,7 @@
   ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/weloin-soumyadip/Coaching-app.git"
@@ -31,6 +34,10 @@
     "mongoose": "^9.6.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
   }
 }

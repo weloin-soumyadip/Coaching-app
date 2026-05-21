@@ -1,6 +1,8 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      target: builder
     image: tuition-finder-server:dev
     container_name: tuition-finder-app
     ports:

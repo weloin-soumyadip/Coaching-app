@@ -1,10 +1,10 @@
-const mongoose = require('mongoose');
-const config = require('./index');
+import mongoose from 'mongoose';
+import config from './index.js';
 
 // Connect to MongoDB and wire up connection event logging.
 // Throws on missing URI or initial connection failure so the process
-// exits cleanly under a supervisor (nodemon, PM2, Docker).
-const connectDB = async () => {
+// exits cleanly under a supervisor (PM2, Docker).
+const connectDB = async (): Promise<void> => {
   if (!config.mongoUri) {
     throw new Error('[mongo] MONGO_URI is not set. Add it to your .env file.');
   }
@@ -12,7 +12,7 @@ const connectDB = async () => {
   await mongoose.connect(config.mongoUri);
   console.log(`[mongo] connected to ${mongoose.connection.name}`);
 
-  mongoose.connection.on('error', (err) => {
+  mongoose.connection.on('error', (err: Error) => {
     console.error('[mongo] connection error:', err.message);
   });
 
@@ -21,4 +21,4 @@ const connectDB = async () => {
   });
 };
 
-module.exports = connectDB;
+export default connectDB;
