@@ -8,29 +8,45 @@ Backend for the Tuition Finder platform. Coaching center owners list institutes;
 - MongoDB + Mongoose 9
 - JWT auth (Phase 2)
 
-## Quick Start
+## Quick Start (Docker Compose — recommended)
 
 ```bash
-# 1. Install dependencies
-npm install
-
-# 2. Set up environment
+# 1. Set up environment
 cp .env.example .env
-# Edit .env — at minimum, set MONGO_URI to a reachable MongoDB instance
 
-# 3. Run in dev mode (auto-restart on change)
-npm run dev
+# 2. Boot the full stack (app + Mongo)
+docker compose up --build
 
-# 4. Smoke check
+# 3. Smoke check (from another shell)
 curl http://localhost:5000/api/health
 # → { "status": "ok", ... }
 ```
 
-If you do not have MongoDB installed locally, the quickest path is Docker:
+That's it. The `app` container runs `npm run dev` (which uses `node --watch`),
+so editing files under `src/` triggers an in-container restart. Mongo data
+persists in the named volume `tuition-mongo-data`.
+
+When you add a new dependency on the host (`npm install <pkg>`), rebuild so
+the container picks it up:
 
 ```bash
-docker run -d -p 27017:27017 --name tuition-mongo -v tuition-mongo-data:/data/db mongo:7
+docker compose up --build
+# or, without restarting:  docker compose exec app npm install <pkg>
 ```
+
+To stop everything: `docker compose down` (data persists). To wipe the DB:
+`docker volume rm tuition-mongo-data` after `down`.
+
+## Alternative: run on host
+
+```bash
+npm install
+cp .env.example .env       # MONGO_URI points at localhost:27017
+npm run dev
+```
+
+You'll need a reachable Mongo. If you don't have one, start just the Mongo
+service from Compose: `docker compose up mongo`.
 
 ## Project Layout
 

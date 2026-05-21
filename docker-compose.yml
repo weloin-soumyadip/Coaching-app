@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    image: tuition-finder-server:dev
+    container_name: tuition-finder-app
+    ports:
+      - "127.0.0.1:5000:5000"
+    env_file:
+      - .env
+    environment:
+      # Override the host-targeted URI from .env for the compose network.
+      MONGO_URI: mongodb://mongo:27017/tuition_finder
+    volumes:
+      - ./:/app
+      # Anonymous volume keeps the image's node_modules from being shadowed
+      # by the bind mount above.
+      - /app/node_modules
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: npm run dev
+
+  mongo:
+    image: mongo:7
+    container_name: tuition-finder-mongo
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - tuition-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ ping: 1 })"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  tuition-mongo-data:
+    external: true
