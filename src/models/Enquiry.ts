@@ -10,7 +10,7 @@ const enquirySchema = new Schema(
     // Phase 1 requires login — anonymous enquiries are out of scope.
     student: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Student',
       required: true,
     },
     subject: { type: Schema.Types.ObjectId, ref: 'Subject' },

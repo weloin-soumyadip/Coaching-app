@@ -3,6 +3,7 @@ import cors from 'cors';
 
 import config from './config/index.js';
 import healthRoutes from './routes/health.routes.js';
+import authRoutes from './routes/auth.routes.js';
 import notFound from './middleware/notFound.js';
 import errorHandler from './middleware/errorHandler.js';
 
@@ -26,6 +27,7 @@ app.get('/', (_req: Request, res: Response) => {
 
 // Routes
 app.use('/api/health', healthRoutes);
+app.use('/api/auth', authRoutes);
 
 // 404 + central error handler — must come LAST.
 app.use(notFound);

@@ -49,7 +49,7 @@ const coachingCenterSchema = new Schema(
     description: { type: String, trim: true },
     owner: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Owner',
       required: true,
     },
     address: { type: String, required: true, trim: true },
