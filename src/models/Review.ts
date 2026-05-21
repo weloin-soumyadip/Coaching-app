@@ -16,7 +16,7 @@ const reviewSchema = new Schema(
     },
     student: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Student',
       required: true,
     },
     rating: { type: Number, required: true, min: 1, max: 5 },

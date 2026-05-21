@@ -1,9 +1,18 @@
 import { Schema, model, type InferSchemaType, type Model, type HydratedDocument } from 'mongoose';
+import { attachPasswordHooks, type PasswordMethods } from '../lib/auth/passwordHook.js';
 
-// Basic email validation regex (RFC 5322 simplified — good enough for app-level validation).
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const userSchema = new Schema(
+const ADMIN_PERMISSIONS = [
+  'users',
+  'centers',
+  'courses',
+  'subjects',
+  'reviews',
+  'reports',
+] as const;
+
+const adminSchema = new Schema(
   {
     name: { type: String, required: [true, 'Name is required'], trim: true },
     email: {
@@ -18,30 +27,29 @@ const userSchema = new Schema(
       type: String,
       required: [true, 'Password is required'],
       minlength: [6, 'Password must be at least 6 characters'],
-      select: false, // not returned by default
+      select: false,
     },
     phone: { type: String, trim: true },
-    role: {
-      type: String,
-      enum: ['student', 'owner', 'admin'],
-      default: 'student',
-    },
     profileImage: { type: String, default: '' },
     isActive: { type: Boolean, default: true },
     isEmailVerified: { type: Boolean, default: false },
+
+    permissions: {
+      type: [String],
+      enum: ADMIN_PERMISSIONS,
+      default: [...ADMIN_PERMISSIONS],
+    },
+    lastLoginAt: { type: Date },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
   },
   { timestamps: true },
 );
 
-// `email` already has unique via field option; explicit index on role for admin queries.
-userSchema.index({ role: 1 });
+export type AdminAttrs = InferSchemaType<typeof adminSchema>;
+export type AdminDoc = HydratedDocument<AdminAttrs, PasswordMethods>;
+export type AdminModel = Model<AdminAttrs, {}, PasswordMethods>;
 
-// NOTE: bcrypt pre-save hashing hook is intentionally deferred to Phase 2
-// (added with /auth/register and /auth/login endpoints).
+attachPasswordHooks<AdminAttrs>(adminSchema);
 
-export type UserAttrs = InferSchemaType<typeof userSchema>;
-export type UserDoc = HydratedDocument<UserAttrs>;
-export type UserModel = Model<UserAttrs>;
-
-const User: UserModel = model<UserAttrs>('User', userSchema);
-export default User;
+const Admin: AdminModel = model<AdminAttrs, AdminModel>('Admin', adminSchema);
+export default Admin;
