@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import config from './index.js';
+import logger from '../lib/logger.js';
 
 // Connect to MongoDB and wire up connection event logging.
 // Throws on missing URI or initial connection failure so the process
@@ -10,14 +11,14 @@ const connectDB = async (): Promise<void> => {
   }
 
   await mongoose.connect(config.mongoUri);
-  console.log(`[mongo] connected to ${mongoose.connection.name}`);
+  logger.info({ dbName: mongoose.connection.name }, 'mongo connected');
 
   mongoose.connection.on('error', (err: Error) => {
-    console.error('[mongo] connection error:', err.message);
+    logger.error({ err }, 'mongo connection error');
   });
 
   mongoose.connection.on('disconnected', () => {
-    console.warn('[mongo] disconnected');
+    logger.warn('mongo disconnected');
   });
 };
 

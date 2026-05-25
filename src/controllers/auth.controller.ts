@@ -1,24 +1,25 @@
 import type { Request, Response } from 'express';
 import ApiError from '../utils/ApiError.js';
-import { issue, type UserType } from '../lib/auth/jwt.js';
+import config from '../config/index.js';
+import { issueAccess, type UserType } from '../lib/auth/jwt.js';
+import {
+  issueNewRefresh,
+  rotateRefresh,
+  revokeRefresh,
+} from '../lib/auth/refreshTokens.js';
+import { setRefreshCookie, clearRefreshCookie } from '../lib/auth/cookies.js';
+import { sanitize, type AuthDoc } from '../lib/auth/sanitize.js';
 import { findEmailOwner } from '../lib/auth/emailUniqueness.js';
-import Owner, { type OwnerDoc } from '../models/Owner.js';
-import Teacher, { type TeacherDoc } from '../models/Teacher.js';
-import Student, { type StudentDoc } from '../models/Student.js';
+import Owner from '../models/Owner.js';
+import Teacher from '../models/Teacher.js';
+import Student from '../models/Student.js';
 import Admin, { type AdminDoc } from '../models/Admin.js';
 import type { AuthUser } from '../types/express.js';
 
 type RegisterableUserType = Exclude<UserType, 'admin'>;
-type AuthDoc = OwnerDoc | TeacherDoc | StudentDoc | AdminDoc;
 
 const REGISTERABLE: ReadonlyArray<RegisterableUserType> = ['owner', 'teacher', 'student'];
 const ALL_TYPES: ReadonlyArray<UserType> = ['owner', 'teacher', 'student', 'admin'];
-
-function sanitize(doc: AuthDoc): Record<string, unknown> {
-  const obj = doc.toObject({ versionKey: false }) as Record<string, unknown>;
-  delete obj.password;
-  return obj;
-}
 
 export async function register(req: Request, res: Response): Promise<void> {
   const { userType, name, email, password, phone } = req.body as Partial<{
@@ -55,8 +56,13 @@ export async function register(req: Request, res: Response): Promise<void> {
       break;
   }
 
-  const token = issue({ sub: String(doc._id), userType: userType as UserType });
-  res.status(201).json({ token, user: sanitize(doc) });
+  const sub = String(doc._id);
+  const typed = userType as UserType;
+  const accessToken = issueAccess({ sub, userType: typed });
+  const refresh = await issueNewRefresh(sub, typed);
+  setRefreshCookie(res, refresh);
+
+  res.status(201).json({ token: accessToken, user: sanitize(doc) });
 }
 
 export async function login(req: Request, res: Response): Promise<void> {
@@ -86,8 +92,42 @@ export async function login(req: Request, res: Response): Promise<void> {
     await doc.save();
   }
 
-  const token = issue({ sub: String(doc._id), userType: userType as UserType });
-  res.status(200).json({ token, user: sanitize(doc) });
+  const sub = String(doc._id);
+  const typed = userType as UserType;
+  const accessToken = issueAccess({ sub, userType: typed });
+  const refresh = await issueNewRefresh(sub, typed);
+  setRefreshCookie(res, refresh);
+
+  res.status(200).json({ token: accessToken, user: sanitize(doc) });
+}
+
+export async function refresh(req: Request, res: Response): Promise<void> {
+  const cookies = (req as Request & { cookies?: Record<string, string> }).cookies ?? {};
+  const raw = cookies[config.cookie.refreshName];
+  if (!raw) throw new ApiError(401, 'Missing refresh token');
+
+  let rotated;
+  try {
+    rotated = await rotateRefresh(raw);
+  } catch {
+    // rotation failed: bad signature, expired, missing in Redis, or family revoked.
+    clearRefreshCookie(res);
+    throw new ApiError(401, 'Invalid or expired refresh token');
+  }
+
+  const accessToken = issueAccess({ sub: rotated.sub, userType: rotated.userType });
+  setRefreshCookie(res, rotated);
+  res.status(200).json({ token: accessToken });
+}
+
+export async function logout(req: Request, res: Response): Promise<void> {
+  const cookies = (req as Request & { cookies?: Record<string, string> }).cookies ?? {};
+  const raw = cookies[config.cookie.refreshName];
+  if (raw) {
+    await revokeRefresh(raw);
+  }
+  clearRefreshCookie(res);
+  res.status(204).end();
 }
 
 async function loadWithPassword(
@@ -115,4 +155,3 @@ export async function me(req: Request, res: Response): Promise<void> {
   const auth: AuthUser = req.auth;
   res.status(200).json({ userType: auth.type, user: sanitize(auth.doc) });
 }
-

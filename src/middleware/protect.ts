@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { verify, type UserType } from '../lib/auth/jwt.js';
+import { verifyAccess, type UserType } from '../lib/auth/jwt.js';
 import ApiError from '../utils/ApiError.js';
 import Owner from '../models/Owner.js';
 import Teacher from '../models/Teacher.js';
@@ -18,7 +18,7 @@ const protect: RequestHandler = async (req, _res, next) => {
 
     let payload;
     try {
-      payload = verify(token);
+      payload = verifyAccess(token);
     } catch {
       throw new ApiError(401, 'Invalid or expired token');
     }

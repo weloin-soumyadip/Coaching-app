@@ -3,30 +3,76 @@ import config from '../../config/index.js';
 
 export type UserType = 'owner' | 'teacher' | 'student' | 'admin';
 
-export interface JwtPayload {
+interface AccessPayload {
   sub: string;
   userType: UserType;
 }
 
-export function issue(payload: JwtPayload): string {
-  const options: SignOptions = {
-    expiresIn: config.jwt.expiresIn as SignOptions['expiresIn'],
-  };
-  return jwt.sign(payload, config.jwt.secret, options);
+interface RefreshPayload {
+  sub: string;
+  userType: UserType;
+  jti: string;
+  family: string;
 }
 
-export function verify(token: string): JwtPayload {
-  const decoded = jwt.verify(token, config.jwt.secret);
+const ALL_USER_TYPES: ReadonlyArray<UserType> = ['owner', 'teacher', 'student', 'admin'];
+
+const isUserType = (v: unknown): v is UserType =>
+  typeof v === 'string' && (ALL_USER_TYPES as ReadonlyArray<string>).includes(v);
+
+export function issueAccess(payload: AccessPayload): string {
+  const options: SignOptions = {
+    expiresIn: config.jwt.accessExpiresIn as SignOptions['expiresIn'],
+  };
+  return jwt.sign({ ...payload, tokenType: 'access' }, config.jwt.accessSecret, options);
+}
+
+export function issueRefresh(payload: RefreshPayload): string {
+  const options: SignOptions = {
+    expiresIn: config.jwt.refreshExpiresIn as SignOptions['expiresIn'],
+    jwtid: payload.jti,
+  };
+  return jwt.sign(
+    {
+      sub: payload.sub,
+      userType: payload.userType,
+      family: payload.family,
+      tokenType: 'refresh',
+    },
+    config.jwt.refreshSecret,
+    options,
+  );
+}
+
+export function verifyAccess(token: string): AccessPayload {
+  const decoded = jwt.verify(token, config.jwt.accessSecret);
+  if (typeof decoded === 'string') throw new Error('[jwt] invalid token payload');
+  const d = decoded as { sub?: unknown; userType?: unknown; tokenType?: unknown };
+  if (d.tokenType !== 'access') throw new Error('[jwt] expected access token');
+  if (typeof d.sub !== 'string' || !isUserType(d.userType)) {
+    throw new Error('[jwt] invalid token payload');
+  }
+  return { sub: d.sub, userType: d.userType };
+}
+
+export function verifyRefresh(token: string): RefreshPayload {
+  const decoded = jwt.verify(token, config.jwt.refreshSecret);
+  if (typeof decoded === 'string') throw new Error('[jwt] invalid token payload');
+  const d = decoded as {
+    sub?: unknown;
+    userType?: unknown;
+    tokenType?: unknown;
+    jti?: unknown;
+    family?: unknown;
+  };
+  if (d.tokenType !== 'refresh') throw new Error('[jwt] expected refresh token');
   if (
-    typeof decoded === 'string' ||
-    typeof decoded.sub !== 'string' ||
-    typeof (decoded as { userType?: unknown }).userType !== 'string'
+    typeof d.sub !== 'string' ||
+    !isUserType(d.userType) ||
+    typeof d.jti !== 'string' ||
+    typeof d.family !== 'string'
   ) {
     throw new Error('[jwt] invalid token payload');
   }
-  const userType = (decoded as { userType: string }).userType;
-  if (!['owner', 'teacher', 'student', 'admin'].includes(userType)) {
-    throw new Error(`[jwt] unknown userType: ${userType}`);
-  }
-  return { sub: decoded.sub, userType: userType as UserType };
+  return { sub: d.sub, userType: d.userType, jti: d.jti, family: d.family };
 }

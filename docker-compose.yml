@@ -10,8 +10,9 @@ services:
     env_file:
       - .env
     environment:
-      # Override the host-targeted URI from .env for the compose network.
+      # Override host-targeted URIs from .env for the compose network.
       MONGO_URI: mongodb://mongo:27017/tuition_finder
+      REDIS_URL: redis://redis:6379
     volumes:
       - ./:/app
       # Anonymous volume keeps the image's node_modules from being shadowed
@@ -19,6 +20,8 @@ services:
       - /app/node_modules
     depends_on:
       mongo:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     command: npm run dev
 
@@ -36,6 +39,22 @@ services:
       retries: 10
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    container_name: tuition-finder-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - tuition-redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
 volumes:
   tuition-mongo-data:
     external: true
+  tuition-redis-data:

@@ -1,28 +1,34 @@
-import { Schema, model, type InferSchemaType, type Model, type HydratedDocument } from 'mongoose';
+import {
+  Schema,
+  model,
+  type InferSchemaType,
+  type Model,
+  type HydratedDocument,
+} from "mongoose";
 
 const enquirySchema = new Schema(
   {
     coachingCenter: {
       type: Schema.Types.ObjectId,
-      ref: 'CoachingCenter',
+      ref: "CoachingCenter",
       required: true,
     },
     // Phase 1 requires login — anonymous enquiries are out of scope.
     student: {
       type: Schema.Types.ObjectId,
-      ref: 'Student',
+      ref: "Student",
       required: true,
     },
-    subject: { type: Schema.Types.ObjectId, ref: 'Subject' },
+    subject: { type: Schema.Types.ObjectId, ref: "Subject" },
     message: { type: String, required: true, trim: true },
     status: {
       type: String,
-      enum: ['new', 'contacted', 'closed'],
-      default: 'new',
+      enum: ["new", "contacted", "closed"],
+      default: "new",
     },
     ownerNotes: { type: String, trim: true }, // private — only center owner sees
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 enquirySchema.index({ student: 1 });
@@ -32,5 +38,5 @@ export type EnquiryAttrs = InferSchemaType<typeof enquirySchema>;
 export type EnquiryDoc = HydratedDocument<EnquiryAttrs>;
 export type EnquiryModel = Model<EnquiryAttrs>;
 
-const Enquiry: EnquiryModel = model<EnquiryAttrs>('Enquiry', enquirySchema);
+const Enquiry: EnquiryModel = model<EnquiryAttrs>("Enquiry", enquirySchema);
 export default Enquiry;

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import connectDB from '../config/db.js';
 import Admin from '../models/Admin.js';
+import logger from '../lib/logger.js';
 
 async function main(): Promise<void> {
   const email = process.env.SEED_ADMIN_EMAIL;
@@ -20,17 +21,17 @@ async function main(): Promise<void> {
     const normalized = email.toLowerCase().trim();
     const existing = await Admin.findOne({ email: normalized });
     if (existing) {
-      console.log(`[seed:admin] admin already exists: ${normalized}`);
+      logger.info({ email: normalized }, 'admin already exists');
       return;
     }
     await Admin.create({ email: normalized, password, name });
-    console.log(`[seed:admin] created admin: ${normalized}`);
+    logger.info({ email: normalized }, 'admin created');
   } finally {
     await mongoose.disconnect();
   }
 }
 
 main().catch((err) => {
-  console.error('[seed:admin] failed:', err instanceof Error ? err.message : err);
+  logger.error({ err }, 'seed failed');
   process.exit(1);
 });
