@@ -10,6 +10,10 @@ import {
 import { setRefreshCookie, clearRefreshCookie } from '../lib/auth/cookies.js';
 import { sanitize, type AuthDoc } from '../lib/auth/sanitize.js';
 import { findEmailOwner } from '../lib/auth/emailUniqueness.js';
+import type {
+  AuthIdentityResponse,
+  AuthTokenResponse,
+} from '../types/auth-response.js';
 import Owner from '../models/Owner.js';
 import Teacher from '../models/Teacher.js';
 import Student from '../models/Student.js';
@@ -62,11 +66,13 @@ export async function register(req: Request, res: Response): Promise<void> {
   const refresh = await issueNewRefresh(sub, typed);
   setRefreshCookie(res, refresh);
 
-  res.status(201).json({
-    token: accessToken,
+  const payload: AuthTokenResponse = {
+    success: true,
+    accessToken,
     refreshToken: refresh.token,
     user: sanitize(doc),
-  });
+  };
+  res.status(201).json(payload);
 }
 
 export async function login(req: Request, res: Response): Promise<void> {
@@ -102,11 +108,13 @@ export async function login(req: Request, res: Response): Promise<void> {
   const refresh = await issueNewRefresh(sub, typed);
   setRefreshCookie(res, refresh);
 
-  res.status(200).json({
-    token: accessToken,
+  const payload: AuthTokenResponse = {
+    success: true,
+    accessToken,
     refreshToken: refresh.token,
     user: sanitize(doc),
-  });
+  };
+  res.status(200).json(payload);
 }
 
 export async function refresh(req: Request, res: Response): Promise<void> {
@@ -125,7 +133,12 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 
   const accessToken = issueAccess({ sub: rotated.sub, userType: rotated.userType });
   setRefreshCookie(res, rotated);
-  res.status(200).json({ token: accessToken, refreshToken: rotated.token });
+  const payload: AuthTokenResponse = {
+    success: true,
+    accessToken,
+    refreshToken: rotated.token,
+  };
+  res.status(200).json(payload);
 }
 
 export async function logout(req: Request, res: Response): Promise<void> {
@@ -161,5 +174,10 @@ export async function me(req: Request, res: Response): Promise<void> {
   if (!req.auth) throw new ApiError(401, 'Not authenticated');
   // Discriminate so TS narrows the doc type and `sanitize` accepts it.
   const auth: AuthUser = req.auth;
-  res.status(200).json({ userType: auth.type, user: sanitize(auth.doc) });
+  const payload: AuthIdentityResponse = {
+    success: true,
+    userType: auth.type,
+    user: sanitize(auth.doc),
+  };
+  res.status(200).json(payload);
 }

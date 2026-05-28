@@ -214,10 +214,11 @@ Coaching-app/
 - **Reuse detection**: if a presented JTI is missing (already rotated / logged out / **stolen and replayed**), the entire family is revoked via `SMEMBERS` + bulk `DEL`. The legitimate user is forced to re-login. Logged at WARN with `{jti, family, sub}`.
 - **Cookie attributes**: `httpOnly`, `sameSite=strict`, `secure` in prod, `path=/api/auth`, `maxAge=7d`. JS in the browser cannot read it; CSRF surface is minimised by `SameSite=Strict` + path scope.
 - **Endpoints**:
-  - `POST /api/auth/register` — issues access + refresh; returns `{token, refreshToken, user}` and sets refresh cookie
-  - `POST /api/auth/login` — issues access + refresh; returns `{token, refreshToken, user}` and sets refresh cookie
-  - `POST /api/auth/refresh` — reads cookie, rotates, returns `{token, refreshToken}` (rotated value), sets new cookie
-  - `POST /api/auth/logout` — revokes current refresh JTI, clears cookie (204)
+  - `POST /api/auth/register` — issues access + refresh; returns `{success, accessToken, refreshToken, user}` and sets refresh cookie
+  - `POST /api/auth/login` — issues access + refresh; returns `{success, accessToken, refreshToken, user}` and sets refresh cookie
+  - `POST /api/auth/refresh` — reads cookie, rotates, returns `{success, accessToken, refreshToken}` (rotated value), sets new cookie
+  - `POST /api/auth/logout` — revokes current refresh JTI, clears cookie (204; no body)
+- **Standard response envelope**: every token-issuing handler (auth + 4 role `changePassword`) returns `{success: true, accessToken, refreshToken, user?}`. `user` is omitted on `/api/auth/refresh` and on password change. `GET /api/auth/me` returns `{success: true, userType, user}`. Defined as `AuthTokenResponse` / `AuthIdentityResponse` in `src/types/auth-response.ts`.
 - **Verified end-to-end**: registration → cookie set → `/me` with access → rotation (JTI changes) → replay of old JTI → 401 + family revoked → new JTI also rejected → logout clears cookie → Redis returns 0 leftover `rt:*` keys.
 
 ### Structured logging (shipped)
@@ -329,10 +330,10 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
 - `src/scripts/seedAdmin.ts`
 
 ### Behaviour verified
-- Register owner / teacher / student → 201 with access JWT + `refreshToken` in body + refresh cookie + sanitised user
-- Login all four roles → 200 with access JWT + `refreshToken` in body + refresh cookie
-- `GET /api/auth/me` with Bearer → 200 with `{userType, user}`
-- `POST /api/auth/refresh` with valid cookie → 200, new access token + rotated `refreshToken` in body + **rotated** refresh cookie (new JTI)
+- Register owner / teacher / student → 201 with `{success, accessToken, refreshToken, user}` + refresh cookie
+- Login all four roles → 200 with `{success, accessToken, refreshToken, user}` + refresh cookie
+- `GET /api/auth/me` with Bearer → 200 with `{success, userType, user}`
+- `POST /api/auth/refresh` with valid cookie → 200 with `{success, accessToken, refreshToken}` + **rotated** refresh cookie (new JTI)
 - Replay of an already-rotated refresh token → **401** + entire family revoked (logged at WARN with `{jti, family, sub}`)
 - After reuse-revocation, the most recent legit refresh also stops working — user must re-login
 - `POST /api/auth/logout` with valid cookie → **204**, cookie cleared, JTI removed from Redis
@@ -358,14 +359,14 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
 |---|---|---|---|
 | GET | `/` | public | Hello banner |
 | GET | `/api/health` | public | uptime + env + timestamp |
-| POST | `/api/auth/register` | public | body `{userType, name, email, password, phone?}`; userType ∈ `owner\|teacher\|student`. Returns `{token, refreshToken, user}`. Also sets `refreshToken` HTTP-only cookie. |
-| POST | `/api/auth/login` | public | body `{userType, email, password}`; userType ∈ all four. Returns `{token, refreshToken, user}`. Also sets `refreshToken` HTTP-only cookie. |
-| POST | `/api/auth/refresh` | refresh cookie | Rotates the refresh token; returns `{token, refreshToken}` (new access + new refresh). Old JTI is single-use — replay → 401 + family revoked. |
+| POST | `/api/auth/register` | public | body `{userType, name, email, password, phone?}`; userType ∈ `owner\|teacher\|student`. Returns `{success, accessToken, refreshToken, user}`. Also sets `refreshToken` HTTP-only cookie. |
+| POST | `/api/auth/login` | public | body `{userType, email, password}`; userType ∈ all four. Returns `{success, accessToken, refreshToken, user}`. Also sets `refreshToken` HTTP-only cookie. |
+| POST | `/api/auth/refresh` | refresh cookie | Rotates the refresh token; returns `{success, accessToken, refreshToken}` (new access + new refresh). Old JTI is single-use — replay → 401 + family revoked. |
 | POST | `/api/auth/logout` | refresh cookie | Revokes the current JTI in Redis, clears cookie. 204. Idempotent. |
-| GET | `/api/auth/me` | Bearer | returns `{userType, user}` |
+| GET | `/api/auth/me` | Bearer | returns `{success, userType, user}` |
 | PATCH | `/api/owners/me` | Bearer (owner) | Whitelisted self-update (name, phone, profileImage). `.strict()` blocks privilege escalation. |
 | DELETE | `/api/owners/me` | Bearer (owner) | Soft-deactivate + `revokeAllForUser`. 204. |
-| POST | `/api/owners/me/password` | Bearer (owner) | `{currentPassword, newPassword}` → 200 + new access token + new refresh cookie. Sibling sessions revoked. |
+| POST | `/api/owners/me/password` | Bearer (owner) | `{currentPassword, newPassword}` → 200 `{success, accessToken, refreshToken}` + new refresh cookie. Sibling sessions revoked. |
 | PATCH | `/api/teachers/me` | Bearer (teacher) | Rich self-PATCH (bio, education, batches, fees, boards, location, etc. — 17 fields). |
 | DELETE | `/api/teachers/me` | Bearer (teacher) | Same as owner. |
 | POST | `/api/teachers/me/password` | Bearer (teacher) | Same as owner. |

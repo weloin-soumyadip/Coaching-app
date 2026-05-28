@@ -7,6 +7,7 @@ import { setRefreshCookie, clearRefreshCookie } from '../lib/auth/cookies.js';
 import { sanitize } from '../lib/auth/sanitize.js';
 import type { AdminSelfPatch } from '../schemas/admins.schemas.js';
 import type { PasswordChange } from '../schemas/common.js';
+import type { AuthTokenResponse } from '../types/auth-response.js';
 
 function requireAdmin(req: Request) {
   if (!req.auth || req.auth.type !== 'admin') {
@@ -55,5 +56,10 @@ export async function changePassword(req: Request, res: Response): Promise<void>
   const refresh = await issueNewRefresh(sub, 'admin');
   setRefreshCookie(res, refresh);
 
-  res.status(200).json({ token: accessToken });
+  const payload: AuthTokenResponse = {
+    success: true,
+    accessToken,
+    refreshToken: refresh.token,
+  };
+  res.status(200).json(payload);
 }

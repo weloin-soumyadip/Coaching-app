@@ -26,8 +26,31 @@ The API uses a **two-token** auth model:
 
 | Token | Lifetime | Where it lives | Purpose |
 |---|---|---|---|
-| Access JWT | 15 min (default) | JSON body field `token`, sent back as `Authorization: Bearer <token>` | Authorizes protected endpoints |
+| Access JWT | 15 min (default) | JSON body field `accessToken`, sent back as `Authorization: Bearer <accessToken>` | Authorizes protected endpoints |
 | Refresh JWT | 7 days (default) | **Both** JSON body field `refreshToken` **and** HTTP-only `refreshToken` cookie at `Path=/api/auth` | Issues new access tokens via `/api/auth/refresh` |
+
+### Response envelope
+
+Every token-issuing endpoint returns the same envelope:
+
+```ts
+interface AuthTokenResponse {
+  success: true;
+  accessToken: string;
+  refreshToken: string;
+  user?: Record<string, unknown>; // omitted on /api/auth/refresh
+}
+```
+
+`GET /api/auth/me` uses a slightly different envelope (no tokens):
+
+```ts
+interface AuthIdentityResponse {
+  success: true;
+  userType: 'owner' | 'teacher' | 'student' | 'admin';
+  user: Record<string, unknown>;
+}
+```
 
 Clients must:
 - Store the access token in memory and send it as `Authorization: Bearer <token>` on protected endpoints.
@@ -119,7 +142,8 @@ curl -s -c jar.txt -X POST http://localhost:5000/api/auth/register \
 
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "success": true,
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "user": {
     "_id": "67234c0e7e1c0a4d5f6a7b8c",
@@ -180,7 +204,8 @@ curl -s -c jar.txt -X POST http://localhost:5000/api/auth/login \
 
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "success": true,
+  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
   "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
   "user": {
     "_id": "67234c0e7e1c0a4d5f6a7b8c",
@@ -225,12 +250,15 @@ curl -s -b jar.txt -c jar.txt -X POST http://localhost:5000/api/auth/refresh
 
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "success": true,
+  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
   "refreshToken": "eyJhbGciOiJIUzI1NiIs..."
 }
 ```
 
 The returned `refreshToken` has a **new JTI** (different from the one you sent) and belongs to the same family. The same value is also set as a `refreshToken` cookie. Discard the old refresh token immediately — replaying it will trip reuse detection and revoke the whole family.
+
+> Note: `user` is intentionally **omitted** from this response — rotation does not re-fetch identity. Call `GET /api/auth/me` if you need it.
 
 **Error responses**
 
@@ -276,18 +304,19 @@ Returns the currently authenticated user, identified by the access token.
 **Example request**
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:5000/api/auth/login \
+ACCESS_TOKEN=$(curl -s -X POST http://localhost:5000/api/auth/login \
   -H 'content-type: application/json' \
-  -d '{"userType":"owner","email":"alice@example.com","password":"secret123"}' | jq -r .token)
+  -d '{"userType":"owner","email":"alice@example.com","password":"secret123"}' | jq -r .accessToken)
 
 curl -s http://localhost:5000/api/auth/me \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
 **Success response — `200 OK`**
 
 ```json
 {
+  "success": true,
   "userType": "owner",
   "user": {
     "_id": "67234c0e7e1c0a4d5f6a7b8c",
@@ -317,23 +346,26 @@ curl -s http://localhost:5000/api/auth/me \
 ## End-to-end flow (cheat sheet)
 
 ```bash
-# 1. Register (sets refresh cookie, returns access token)
+# 1. Register (sets refresh cookie, returns {success, accessToken, refreshToken, user})
 curl -s -c jar.txt -X POST http://localhost:5000/api/auth/register \
   -H 'content-type: application/json' \
   -d '{"userType":"owner","name":"Alice","email":"alice@x.com","password":"secret123"}'
 
-# 2. Login (same — refreshes cookie + access token)
+# 2. Login (same envelope)
 curl -s -c jar.txt -X POST http://localhost:5000/api/auth/login \
   -H 'content-type: application/json' \
   -d '{"userType":"owner","email":"alice@x.com","password":"secret123"}'
 
 # 3. Use access token on protected endpoints
-curl -s http://localhost:5000/api/auth/me -H "Authorization: Bearer $TOKEN"
+ACCESS_TOKEN=$(curl -s -X POST http://localhost:5000/api/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"userType":"owner","email":"alice@x.com","password":"secret123"}' | jq -r .accessToken)
+curl -s http://localhost:5000/api/auth/me -H "Authorization: Bearer $ACCESS_TOKEN"
 
-# 4. Rotate access token via refresh cookie
+# 4. Rotate via refresh cookie (returns {success, accessToken, refreshToken})
 curl -s -b jar.txt -c jar.txt -X POST http://localhost:5000/api/auth/refresh
 
-# 5. Logout (revokes current JTI, clears cookie)
+# 5. Logout (revokes current JTI, clears cookie) — 204 No Content
 curl -s -b jar.txt -c jar.txt -X POST http://localhost:5000/api/auth/logout
 ```
 

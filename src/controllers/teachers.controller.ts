@@ -8,6 +8,7 @@ import { sanitize } from '../lib/auth/sanitize.js';
 import { projectTeacherPublic } from '../lib/crud/projectTeacherPublic.js';
 import type { TeacherSelfPatch } from '../schemas/teachers.schemas.js';
 import type { PasswordChange } from '../schemas/common.js';
+import type { AuthTokenResponse } from '../types/auth-response.js';
 
 function requireTeacher(req: Request) {
   if (!req.auth || req.auth.type !== 'teacher') {
@@ -56,7 +57,12 @@ export async function changePassword(req: Request, res: Response): Promise<void>
   const refresh = await issueNewRefresh(sub, 'teacher');
   setRefreshCookie(res, refresh);
 
-  res.status(200).json({ token: accessToken });
+  const payload: AuthTokenResponse = {
+    success: true,
+    accessToken,
+    refreshToken: refresh.token,
+  };
+  res.status(200).json(payload);
 }
 
 // Public teacher profile — no auth required. 404 on missing OR deactivated
