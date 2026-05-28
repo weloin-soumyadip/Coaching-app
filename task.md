@@ -205,7 +205,7 @@ Coaching-app/
 - **Verified end-to-end**: self-PATCH happy paths for all four roles, `.strict()` rejection (`isActive`/`email` unknown-key 400s), password change kicks Device B's refresh + lets Device A continue, self-delete locks user out across access + refresh, public teacher returns clean projection (no email/phone), admin list with pagination/filters, admin deactivate revokes target user's sessions, admin self-deactivate → 403, admin self-permissions-edit → 403, successor admin creation with custom permissions, validation error `feesRange.min: Too small...` surfaced cleanly.
 
 ### Refresh tokens + Redis-backed rotation (shipped)
-- **Two-token model**: short-lived access JWT (`15m`, in JSON body) + long-lived refresh JWT (`7d`, HTTP-only secure cookie scoped to `/api/auth`).
+- **Two-token model**: short-lived access JWT (`15m`, in JSON body) + long-lived refresh JWT (`7d`, returned **both** in the JSON body as `refreshToken` and as an HTTP-only secure cookie scoped to `/api/auth`). Browser clients keep using the cookie; mobile/CLI clients can read the body value.
 - **Separate secrets** — `JWT_SECRET` (access) and `JWT_REFRESH_SECRET` (refresh) are required at boot and must differ. Limits blast radius if one secret leaks.
 - **Redis whitelist** (`ioredis`) with two key families:
   - `rt:jti:<jti>` → `<familyId>` (TTL = refresh expiry)
@@ -214,9 +214,9 @@ Coaching-app/
 - **Reuse detection**: if a presented JTI is missing (already rotated / logged out / **stolen and replayed**), the entire family is revoked via `SMEMBERS` + bulk `DEL`. The legitimate user is forced to re-login. Logged at WARN with `{jti, family, sub}`.
 - **Cookie attributes**: `httpOnly`, `sameSite=strict`, `secure` in prod, `path=/api/auth`, `maxAge=7d`. JS in the browser cannot read it; CSRF surface is minimised by `SameSite=Strict` + path scope.
 - **Endpoints**:
-  - `POST /api/auth/register` — issues access + refresh (cookie set)
-  - `POST /api/auth/login` — issues access + refresh (cookie set)
-  - `POST /api/auth/refresh` — reads cookie, rotates, returns `{token}`, sets new cookie
+  - `POST /api/auth/register` — issues access + refresh; returns `{token, refreshToken, user}` and sets refresh cookie
+  - `POST /api/auth/login` — issues access + refresh; returns `{token, refreshToken, user}` and sets refresh cookie
+  - `POST /api/auth/refresh` — reads cookie, rotates, returns `{token, refreshToken}` (rotated value), sets new cookie
   - `POST /api/auth/logout` — revokes current refresh JTI, clears cookie (204)
 - **Verified end-to-end**: registration → cookie set → `/me` with access → rotation (JTI changes) → replay of old JTI → 401 + family revoked → new JTI also rejected → logout clears cookie → Redis returns 0 leftover `rt:*` keys.
 
@@ -309,7 +309,7 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
 - One register endpoint + one login endpoint; `userType` is part of the request body.
 - **Two-token model**:
   - **Access JWT** (`15m`, payload `{sub, userType, tokenType:'access'}`) — `Authorization: Bearer …` header. Signed with `JWT_SECRET`.
-  - **Refresh JWT** (`7d`, payload `{sub, userType, jti, family, tokenType:'refresh'}`) — HTTP-only secure cookie scoped to `/api/auth`. Signed with separate `JWT_REFRESH_SECRET`.
+  - **Refresh JWT** (`7d`, payload `{sub, userType, jti, family, tokenType:'refresh'}`) — returned **both** in the JSON response body (`refreshToken`) and as an HTTP-only secure cookie scoped to `/api/auth`. Signed with separate `JWT_REFRESH_SECRET`. The cookie remains the recommended transport for browsers; the body value is convenience for mobile/CLI clients (and a known XSS-exposure trade-off documented in API docs).
 - **Refresh state lives in Redis** (`rt:jti:<jti>` → `<familyId>`, `rt:family:<familyId>` → Set of JTIs). Atomic single-use rotation via `DEL`-check; reuse triggers full family revocation.
 - bcrypt (12 rounds) via `bcryptjs` (pure-JS, no native build in Alpine).
 - Cross-collection email uniqueness enforced in the controller (app-level check). **Known race window** — accepted for Phase 2; documented as ADR-0005 (pending write).
@@ -329,10 +329,10 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
 - `src/scripts/seedAdmin.ts`
 
 ### Behaviour verified
-- Register owner / teacher / student → 201 with access JWT + refresh cookie + sanitised user
-- Login all four roles → 200 with access JWT + refresh cookie
+- Register owner / teacher / student → 201 with access JWT + `refreshToken` in body + refresh cookie + sanitised user
+- Login all four roles → 200 with access JWT + `refreshToken` in body + refresh cookie
 - `GET /api/auth/me` with Bearer → 200 with `{userType, user}`
-- `POST /api/auth/refresh` with valid cookie → 200, new access token, **rotated** refresh cookie (new JTI)
+- `POST /api/auth/refresh` with valid cookie → 200, new access token + rotated `refreshToken` in body + **rotated** refresh cookie (new JTI)
 - Replay of an already-rotated refresh token → **401** + entire family revoked (logged at WARN with `{jti, family, sub}`)
 - After reuse-revocation, the most recent legit refresh also stops working — user must re-login
 - `POST /api/auth/logout` with valid cookie → **204**, cookie cleared, JTI removed from Redis
@@ -358,9 +358,9 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
 |---|---|---|---|
 | GET | `/` | public | Hello banner |
 | GET | `/api/health` | public | uptime + env + timestamp |
-| POST | `/api/auth/register` | public | body `{userType, name, email, password, phone?}`; userType ∈ `owner\|teacher\|student`. Returns `{token, user}` (access). Sets `refreshToken` HTTP-only cookie. |
-| POST | `/api/auth/login` | public | body `{userType, email, password}`; userType ∈ all four. Returns `{token, user}` (access). Sets `refreshToken` HTTP-only cookie. |
-| POST | `/api/auth/refresh` | refresh cookie | Rotates the refresh token; returns `{token}` (new access). Old JTI is single-use — replay → 401 + family revoked. |
+| POST | `/api/auth/register` | public | body `{userType, name, email, password, phone?}`; userType ∈ `owner\|teacher\|student`. Returns `{token, refreshToken, user}`. Also sets `refreshToken` HTTP-only cookie. |
+| POST | `/api/auth/login` | public | body `{userType, email, password}`; userType ∈ all four. Returns `{token, refreshToken, user}`. Also sets `refreshToken` HTTP-only cookie. |
+| POST | `/api/auth/refresh` | refresh cookie | Rotates the refresh token; returns `{token, refreshToken}` (new access + new refresh). Old JTI is single-use — replay → 401 + family revoked. |
 | POST | `/api/auth/logout` | refresh cookie | Revokes the current JTI in Redis, clears cookie. 204. Idempotent. |
 | GET | `/api/auth/me` | Bearer | returns `{userType, user}` |
 | PATCH | `/api/owners/me` | Bearer (owner) | Whitelisted self-update (name, phone, profileImage). `.strict()` blocks privilege escalation. |

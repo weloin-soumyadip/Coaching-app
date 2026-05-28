@@ -62,7 +62,11 @@ export async function register(req: Request, res: Response): Promise<void> {
   const refresh = await issueNewRefresh(sub, typed);
   setRefreshCookie(res, refresh);
 
-  res.status(201).json({ token: accessToken, user: sanitize(doc) });
+  res.status(201).json({
+    token: accessToken,
+    refreshToken: refresh.token,
+    user: sanitize(doc),
+  });
 }
 
 export async function login(req: Request, res: Response): Promise<void> {
@@ -98,7 +102,11 @@ export async function login(req: Request, res: Response): Promise<void> {
   const refresh = await issueNewRefresh(sub, typed);
   setRefreshCookie(res, refresh);
 
-  res.status(200).json({ token: accessToken, user: sanitize(doc) });
+  res.status(200).json({
+    token: accessToken,
+    refreshToken: refresh.token,
+    user: sanitize(doc),
+  });
 }
 
 export async function refresh(req: Request, res: Response): Promise<void> {
@@ -117,7 +125,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 
   const accessToken = issueAccess({ sub: rotated.sub, userType: rotated.userType });
   setRefreshCookie(res, rotated);
-  res.status(200).json({ token: accessToken });
+  res.status(200).json({ token: accessToken, refreshToken: rotated.token });
 }
 
 export async function logout(req: Request, res: Response): Promise<void> {
