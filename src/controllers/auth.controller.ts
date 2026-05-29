@@ -9,7 +9,7 @@ import {
 } from '../lib/auth/refreshTokens.js';
 import { setRefreshCookie, clearRefreshCookie } from '../lib/auth/cookies.js';
 import { sanitize, type AuthDoc } from '../lib/auth/sanitize.js';
-import { findEmailOwner } from '../lib/auth/emailUniqueness.js';
+import { assertEmailAvailable } from '../lib/auth/emailUniqueness.js';
 import type {
   AuthIdentityResponse,
   AuthTokenResponse,
@@ -41,10 +41,7 @@ export async function register(req: Request, res: Response): Promise<void> {
     throw new ApiError(400, 'name, email, and password are required');
   }
 
-  const existing = await findEmailOwner(email);
-  if (existing) {
-    throw new ApiError(409, `Email already registered as ${existing.userType}`);
-  }
+  await assertEmailAvailable(email);
 
   let doc: AuthDoc;
   const base = { name, email, password, ...(phone ? { phone } : {}) };

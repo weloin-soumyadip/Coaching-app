@@ -48,7 +48,7 @@ Coaching-app/
 │   │   │   ├── refreshTokens.ts       # Redis whitelist + family rotation + revokeAllForUser
 │   │   │   ├── cookies.ts             # refresh-cookie helpers (set / clear / options)
 │   │   │   ├── sanitize.ts            # strip password/__v from any role doc
-│   │   │   └── emailUniqueness.ts     # cross-collection email check
+│   │   │   └── emailUniqueness.ts     # cross-collection email check + EmailConflictError (generic 409, no role leak)
 │   │   ├── authz/                     # (empty — Phase 2.3)
 │   │   ├── crud/                      # CRUD helpers
 │   │   │   ├── projectTeacherPublic.ts  # public-safe projection
@@ -84,7 +84,7 @@ Coaching-app/
 │   ├── types/
 │   │   └── express.d.ts               # Request.auth augmentation
 │   └── utils/
-│       └── ApiError.ts
+│       └── ApiError.ts                # HTTP-aware operational error + optional `body` for fixed response shapes
 ├── decisions/                          # ADR-0001 … ADR-0004
 ├── docs/superpowers/{specs,plans}/    # Phase 1 design + plan
 ├── Dockerfile                          # multi-stage (builder + runtime)
@@ -234,7 +234,7 @@ Coaching-app/
 - Single `User` collection dropped; replaced by four role collections: `Owner`, `Teacher`, `Student`, `Admin`
 - Shared bcrypt pre-save hook + `comparePassword` instance method via `attachPasswordHooks<T>(schema)` factory
 - JWT helper (`issue` / `verify`) with `{sub, userType}` payload
-- Cross-collection email uniqueness check (`findEmailOwner`)
+- Cross-collection email uniqueness check (`isEmailTaken` / `assertEmailAvailable` — generic 409 envelope, role never disclosed; see Phase 2.1.1 below)
 - `protect` middleware decodes Bearer token and loads the user from the correct collection
 - `requireRole(...allowed)` middleware
 - `asyncHandler` wrapper for promise-rejecting route handlers
@@ -244,6 +244,44 @@ Coaching-app/
   - `CoachingCenter.owner` → `Owner` (was `User`)
   - `Review.student`       → `Student` (was `User`)
   - `Enquiry.student`      → `Student` (was `User`)
+
+### Phase 2.1.1 — Generic email-conflict response (shipped)
+- **Why**: the previous `"Email already registered as <role>"` message was a textbook account-enumeration oracle — an attacker could probe an email and learn which role owns it. Requirement: every role collection (Owner / Teacher / Student / Admin) must still be checked, but the public response must be byte-identical no matter which role matches.
+- **Public response (fixed contract, 409)** — for both `POST /api/auth/register` and `POST /api/admin/admins`, and for race-window duplicates that slip past the pre-check:
+  ```json
+  {
+    "success": false,
+    "error": {
+      "code": "EMAIL_ALREADY_EXISTS",
+      "message": "An account with this email already exists."
+    }
+  }
+  ```
+  No `userType`, no `id`, no role hint anywhere. Identical bytes for every role. `code` is machine-parseable so clients can branch without scraping the human message.
+- **`src/lib/auth/emailUniqueness.ts`** rewritten:
+  - Old role-leaking `findEmailOwner(email) → {userType, id} | null` **removed**.
+  - New `isEmailTaken(email): Promise<boolean>` — boolean only, by construction unable to leak which role matched.
+  - New `assertEmailAvailable(email)` — throws `EmailConflictError` on collision; controllers just `await` it.
+  - New `EmailConflictError extends ApiError` — carries the frozen `EMAIL_CONFLICT_BODY` so the response envelope lives in one place and can't drift.
+  - Exported `EMAIL_CONFLICT_CODE = 'EMAIL_ALREADY_EXISTS'` for parity with client-side branching.
+  - All four role models live in a single `ROLE_MODELS` array — adding a fifth role is a one-line change. Queries fan out via `Promise.all(Model.exists(...))` (cheaper than `findOne().select().lean()` — Mongo returns at most `{_id}`).
+- **`src/utils/ApiError.ts`** extended with an optional, read-only `body` field. When present, the error handler emits it verbatim and skips the default `{status, message}` envelope. Lets a single error pin its own public shape without leaking implementation details through the global handler.
+- **`src/middleware/errorHandler.ts`** now:
+  - emits `err.body` verbatim when an `ApiError` carries one;
+  - detects Mongo `E11000` duplicate-key errors on the `email` index (`err.code === 11000 && err.keyPattern.email === 1`) and reshapes them to the same `EMAIL_CONFLICT_BODY` at 409 — closes the race-window leak where the raw Mongo message names the collection (i.e. the role).
+  - Non-`ApiError` and bodyless `ApiError`s keep the legacy `{status: 'error', message}` shape — non-breaking.
+- **Controllers** (`auth.controller.ts` register, `admin/admins.admin.controller.ts` create): the role-mention `throw new ApiError(409, 'Email already registered as <role>')` paths are gone; both now just `await assertEmailAvailable(email)`. Net effect is fewer lines and no path that knows which role owns the email.
+- **Audit of full auth surface** confirms the generic envelope applies in every email-touching path:
+  | Surface | How it's covered |
+  |---|---|
+  | `POST /api/auth/register` | `assertEmailAvailable` (pre-check) + E11000 reshape (race) |
+  | `POST /api/admin/admins` | `assertEmailAvailable` (pre-check) + E11000 reshape (race) |
+  | `PATCH /api/{role}/me`, `PATCH /api/admin/{role}/:id` | Zod `.strict()` rejects `email` field — email cannot be changed, so no conflict path exists |
+  | `POST /api/auth/login` | "Invalid credentials" for both no-user and wrong-password — no email-existence enumeration |
+  | `seedAdmin.ts` | CLI, not user-facing |
+- **Race window** — the pre-check is not race-safe (no Mongo transactions in Phase 2; see ADR-0005, pending write). The E11000 reshape is the secondary defense: the race-loser sees the identical generic response, so the enumeration oracle stays closed even when the race fires.
+- **Verified**: `tsc --noEmit` clean. `grep -rn 'findEmailOwner\|already registered as' src/` returns no matches.
+- **Out of scope but noted**: `login` returns `"Account is deactivated"` when the email exists but `isActive=false`. Separate account-enumeration channel (tells an attacker the email exists, but not the role). Not folded into `"Invalid credentials"` yet — left for a follow-up decision.
 
 ---
 
@@ -313,7 +351,7 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
   - **Refresh JWT** (`7d`, payload `{sub, userType, jti, family, tokenType:'refresh'}`) — returned **both** in the JSON response body (`refreshToken`) and as an HTTP-only secure cookie scoped to `/api/auth`. Signed with separate `JWT_REFRESH_SECRET`. The cookie remains the recommended transport for browsers; the body value is convenience for mobile/CLI clients (and a known XSS-exposure trade-off documented in API docs).
 - **Refresh state lives in Redis** (`rt:jti:<jti>` → `<familyId>`, `rt:family:<familyId>` → Set of JTIs). Atomic single-use rotation via `DEL`-check; reuse triggers full family revocation.
 - bcrypt (12 rounds) via `bcryptjs` (pure-JS, no native build in Alpine).
-- Cross-collection email uniqueness enforced in the controller (app-level check). **Known race window** — accepted for Phase 2; documented as ADR-0005 (pending write).
+- Cross-collection email uniqueness enforced via `assertEmailAvailable(email)` helper (see Phase 2.1.1). On collision the API always returns the generic `{success:false, error:{code:"EMAIL_ALREADY_EXISTS", message:"An account with this email already exists."}}` at 409 — role is never disclosed. Race-window E11000s are reshaped to the same body by the error handler. **Known race window for the underlying insert** — accepted for Phase 2; documented as ADR-0005 (pending write).
 
 ### Files
 - `src/lib/auth/passwordHook.ts`
@@ -339,7 +377,7 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
 - `POST /api/auth/logout` with valid cookie → **204**, cookie cleared, JTI removed from Redis
 - Logout is idempotent — calling with no/invalid cookie still 204s and clears
 - Password change (via `POST /api/{role}/me/password`) **revokes all sessions** for that user (Redis `rt:user:<sub>:families` set is drained), then re-issues access + refresh for the calling device only
-- Cross-collection email collision → **409** "Email already registered as <role>"
+- Cross-collection email collision → **409** `{success:false, error:{code:"EMAIL_ALREADY_EXISTS", message:"An account with this email already exists."}}` — identical bytes for all four roles, no enumeration oracle (see Phase 2.1.1)
 - Wrong password → **401** "Invalid credentials"
 - `npm run seed:admin` creates the root admin idempotently
 - Admin login bumps `lastLoginAt`

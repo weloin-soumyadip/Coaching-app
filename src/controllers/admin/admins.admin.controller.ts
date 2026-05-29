@@ -3,7 +3,7 @@ import ApiError from '../../utils/ApiError.js';
 import Admin from '../../models/Admin.js';
 import { revokeAllForUser } from '../../lib/auth/refreshTokens.js';
 import { sanitize } from '../../lib/auth/sanitize.js';
-import { findEmailOwner } from '../../lib/auth/emailUniqueness.js';
+import { assertEmailAvailable } from '../../lib/auth/emailUniqueness.js';
 import { escapeRegex } from '../../lib/crud/escapeRegex.js';
 import type {
   AdminAdminPatch,
@@ -102,10 +102,7 @@ export async function create(req: Request, res: Response): Promise<void> {
   const me = callerId(req);
   const { name, email, password, permissions } = req.body as CreateAdmin;
 
-  const conflict = await findEmailOwner(email);
-  if (conflict) {
-    throw new ApiError(409, `Email already registered as ${conflict.userType}`);
-  }
+  await assertEmailAvailable(email);
 
   const newAdmin = await Admin.create({
     name,
