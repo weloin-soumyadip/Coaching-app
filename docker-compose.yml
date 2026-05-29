@@ -6,7 +6,7 @@ services:
     image: tuition-finder-server:dev
     container_name: tuition-finder-app
     ports:
-      - "127.0.0.1:5000:5000"
+      - "5000:5000"
     env_file:
       - .env
     environment:
@@ -29,7 +29,10 @@ services:
     image: mongo:7
     container_name: tuition-finder-mongo
     ports:
-      - "127.0.0.1:27017:27017"
+      # LAN-exposed per request. NO auth is configured on this instance —
+      # anyone on the network can read/write the DB. Lock down before any
+      # untrusted network use (see warning at bottom of file).
+      - "27017:27017"
     volumes:
       - tuition-mongo-data:/data/db
     healthcheck:
@@ -43,7 +46,10 @@ services:
     image: redis:7-alpine
     container_name: tuition-finder-redis
     ports:
-      - "127.0.0.1:6379:6379"
+      # LAN-exposed per request. NO password is set — anyone on the network
+      # can read/flush the refresh-token whitelist. Lock down before any
+      # untrusted network use (see warning at bottom of file).
+      - "6379:6379"
     volumes:
       - tuition-redis-data:/data
     command: ["redis-server", "--appendonly", "yes"]
