@@ -65,12 +65,14 @@ Coaching-app/
 │   ├── models/
 │   │   ├── Admin.ts
 │   │   ├── CoachingCenter.ts          # owner ref → 'Owner'
+│   │   ├── CoachingCenterReview.ts    # student→center rating (was Review.ts; collection pinned 'reviews')
 │   │   ├── Enquiry.ts                 # student ref → 'Student'
 │   │   ├── Owner.ts
-│   │   ├── Review.ts                  # student ref → 'Student'
 │   │   ├── Student.ts
 │   │   ├── Subject.ts
-│   │   └── Teacher.ts
+│   │   ├── Teacher.ts
+│   │   ├── TeacherReview.ts           # student→teacher rating (denormalises onto Teacher)
+│   │   └── Webinar.ts                 # teacher-hosted webinars (dashboard "upcoming")
 │   ├── routes/
 │   │   ├── auth.routes.ts             # /api/auth/{register,login,refresh,logout,me}
 │   │   ├── owners.routes.ts           # /api/owners/me (PATCH/DELETE/password)
@@ -141,12 +143,13 @@ Coaching-app/
 - `noUncheckedIndexedAccess: false` (flip later when request validation lands)
 
 ### `package.json` scripts
-- `dev`        — `tsx watch src/server.ts`
-- `build`      — `tsc`
-- `start`      — `node dist/server.js`
-- `typecheck`  — `tsc --noEmit`
-- `clean`      — `rm -rf dist`
-- `seed:admin` — `tsx src/scripts/seedAdmin.ts`
+- `dev`          — `tsx watch src/server.ts`
+- `build`        — `tsc`
+- `start`        — `node dist/server.js`
+- `typecheck`    — `tsc --noEmit`
+- `clean`        — `rm -rf dist`
+- `seed:admin`   — `tsx src/scripts/seedAdmin.ts`
+- `seed:webinars`— `tsx src/scripts/seedWebinars.ts`
 
 ### `src/config/index.ts`
 - Reads `NODE_ENV`, `PORT`, `MONGO_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `CORS_ORIGIN` from env.
@@ -245,6 +248,19 @@ Coaching-app/
   - `Review.student`       → `Student` (was `User`)
   - `Enquiry.student`      → `Student` (was `User`)
 
+### Student Dashboard + Webinars + Teacher reviews (shipped)
+- **Aggregated dashboard** — `GET /api/students/dashboard` (`protect` + `requireRole('student')`) returns `{success, dashboard: {topTeachers, topCenters, upcomingWebinars}}` in one round-trip. Read-only; every field is public-safe (no email/phone/password — verified via key allow-list).
+  - **topTeachers** — top 5 by `averageRating` desc, `totalReviews` tiebreak. Each: `{_id, name, profileImage, subjects: [name…], averageRating, totalReviews}` (`subjects` populated from `Subject`).
+  - **topCenters** — top 3 by `averageRating` desc. Each: `{_id, name, image (=profileImage), averageRating, totalReviews, city, area}`.
+  - **upcomingWebinars** — webinars with `status:'scheduled'` and `scheduledAt` in `[now, now+48h]`, **ranked by the hosting teacher's `totalReviews` desc → `averageRating` → soonest, capped at top 3**. Each: `{_id, title, teacher:{name, profileImage, totalReviews}, scheduledAt, thumbnail, joinUrl}`.
+  - **Gotcha fixed**: dashboard does a side-effect `import '../models/Subject.js'` so `Teacher.populate('subjects')` works even though no Subject route is mounted yet (Phase 2.2). Without it the model isn't registered → `MissingSchemaError`.
+- **New `Webinar` model** (`src/models/Webinar.ts`) — `{title, teacher→Teacher, description, scheduledAt, durationMinutes, thumbnail, joinUrl, status('scheduled'|'live'|'completed'|'cancelled'), isActive}`; indexes `scheduledAt`, `(status, scheduledAt)`, `(teacher, scheduledAt)`. Soft-delete via `isActive`.
+- **Webinar full CRUD** (`/api/webinars`) — public `GET /` (pagination + `teacher`/`status`/`upcoming` filters, teacher populated) and `GET /:id`; teacher-authored `POST /` (teacher taken from `req.auth`, never body), `PATCH /:id`, `DELETE /:id` (soft-delete). Owner-only guard (403 on others' webinars), Zod `.strict()` schemas, `seedWebinars.ts` fixture (2 in-window + 1 out-of-window to prove filtering).
+- **New `TeacherReview` model** (`src/models/TeacherReview.ts`) — mirrors the center-review pattern: `{teacher→Teacher, student→Student, rating(1–5), comment, isEdited}`, unique `(teacher, student)`, `recalcStats` static + `post('save'|'findOneAndUpdate'|'findOneAndDelete')` hooks that denormalise `averageRating`/`totalReviews` **onto `Teacher`**. This is what makes "Top Rated Teachers" rank by real ratings instead of zeros (closes the Phase 2.4 teacher-rating gap).
+- **Teacher-review API** — public `GET /api/teachers/:id/reviews` (paginated, `student` populated); student-authored `POST /api/teachers/:id/reviews` (404 if teacher missing/inactive, 409 on duplicate); author-only `PATCH`/`DELETE /api/teacher-reviews/:id` (sets `isEdited`, recalcs on every write).
+- **`Review` → `CoachingCenterReview` rename** — `src/models/Review.ts` renamed (via `git mv`) to `src/models/CoachingCenterReview.ts`; registered model name, exported var, and `*Attrs/*Doc/*Model` types all renamed. **Collection pinned to `'reviews'`** so existing documents aren't orphaned. Now symmetric with `TeacherReview` (center reviews still live in `reviews`; teacher reviews in `teacherreviews`).
+- **Verified end-to-end** (live Docker stack): dashboard returns 5/≤3/≤3 sections with no PII leak; no-token→401, non-student→403; webinar CRUD 201/200/403/400/204/404 with owner guard + `.strict()` rejection; teacher-review create→`{avg:3,n:2}`, edit→`{avg:1.5,n:2}`, delete→`{avg:2,n:1}` denormalised onto Teacher and reflected on the dashboard; webinar ranking surfaces the highest-`totalReviews` hosts' webinars first (`[4,3,2]` top-3). `tsc --noEmit` clean throughout.
+
 ### Phase 2.1.1 — Generic email-conflict response (shipped)
 - **Why**: the previous `"Email already registered as <role>"` message was a textbook account-enumeration oracle — an attacker could probe an email and learn which role owns it. Requirement: every role collection (Owner / Teacher / Student / Admin) must still be checked, but the public response must be byte-identical no matter which role matches.
 - **Public response (fixed contract, 409)** — for both `POST /api/auth/register` and `POST /api/admin/admins`, and for race-window duplicates that slip past the pre-check:
@@ -328,7 +344,9 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
 | `admins` | Admin auth + permissions list (new) |
 | `coachingcenters` | Centers owned by an Owner (Phase 1, ref flipped to Owner) |
 | `subjects` | Subjects catalogue (Phase 1) |
-| `reviews` | Center reviews by students (Phase 1, ref flipped to Student) |
+| `reviews` | Center reviews by students (model renamed `Review`→`CoachingCenterReview`; collection name pinned) |
+| `teacherreviews` | Teacher reviews by students (new; denormalises rating onto Teacher) |
+| `webinars` | Teacher-hosted webinars (new; powers dashboard "upcoming webinars") |
 | `enquiries` | Student enquiries to centers (Phase 1, ref flipped to Student) |
 
 ### Key indexes
@@ -421,8 +439,18 @@ Excludes `node_modules`, `.git`, `.env`, `dist`, `coverage`, IDE folders.
 | PATCH | `/api/admin/{role}/:id/deactivate` | Bearer (admin) | Sets `isActive=false` + revokes all sessions. 204. |
 | PATCH | `/api/admin/{role}/:id/activate` | Bearer (admin) | Sets `isActive=true`. |
 | POST | `/api/admin/admins` | Bearer (admin) | Bootstrap successor admin (`createdBy` set, no auto-login). |
+| GET | `/api/students/dashboard` | Bearer (student) | Aggregated `{topTeachers(5), topCenters(3), upcomingWebinars(3)}`. Webinars ranked by host teacher's `totalReviews`, within next 2 days. |
+| GET | `/api/webinars` | public | List + pagination + filters (`teacher`, `status`, `upcoming`); teacher populated. |
+| GET | `/api/webinars/:id` | public | Single webinar (teacher populated). 404 if `!isActive`. |
+| POST | `/api/webinars` | Bearer (teacher) | Create webinar (teacher from token, not body). `.strict()`. |
+| PATCH | `/api/webinars/:id` | Bearer (teacher) | Owner-only edit. 403 on others'. |
+| DELETE | `/api/webinars/:id` | Bearer (teacher) | Owner-only soft-delete (`isActive=false`). 204. |
+| GET | `/api/teachers/:id/reviews` | public | Paginated teacher reviews (`student` populated). |
+| POST | `/api/teachers/:id/reviews` | Bearer (student) | Review a teacher. 404 if teacher missing/inactive, 409 on duplicate. Recalcs Teacher rating. |
+| PATCH | `/api/teacher-reviews/:id` | Bearer (student) | Author-only edit (sets `isEdited`, recalcs rating). |
+| DELETE | `/api/teacher-reviews/:id` | Bearer (student) | Author-only delete (recalcs rating). 204. |
 
-Endpoints still pending from Phase 2 (centers, courses, reviews, search) — see section 11.
+Endpoints still pending from Phase 2 (centers, courses, center-reviews API, search) — see section 11.
 
 ---
 
@@ -446,11 +474,11 @@ Endpoints still pending from Phase 2 (centers, courses, reviews, search) — see
 - Teacher accept/reject; reverse flow (teacher request join, owner approve)
 - Add `courses` virtual to `CoachingCenter`
 
-### Phase 2.4 — Reviews (teachers)
-- New model: `TeacherReview` with denormalised rating hooks on `Teacher`
-- Routes: `POST /api/teachers/:id/reviews`, edit/delete on `/api/teacher-reviews/:id`
-- Wire student-authored center reviews via the existing `Review` model
-- ADR-0005 (cross-collection email race) + ADR-0006 (teacher rating denormalisation)
+### Phase 2.4 — Reviews (teachers) *(mostly shipped)*
+- ✅ New model: `TeacherReview` with denormalised rating hooks on `Teacher`
+- ✅ Routes: `POST /api/teachers/:id/reviews`, edit/delete on `/api/teacher-reviews/:id`
+- Still pending: wire student-authored **center** reviews via the `CoachingCenterReview` model (model + hooks exist, but no HTTP routes yet)
+- ADR-0005 (cross-collection email race) + ADR-0006 (teacher rating denormalisation) — pending write
 
 ### Phase 2.5 — Search
 - Center search filters (`q`, `subject`, `city`, `area`, `board`, `minRating`, `minFees/maxFees`, `lat/lng/distanceKm`)

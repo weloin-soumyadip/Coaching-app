@@ -9,6 +9,8 @@ import authRoutes from './routes/auth.routes.js';
 import ownersRoutes from './routes/owners.routes.js';
 import teachersRoutes from './routes/teachers.routes.js';
 import studentsRoutes from './routes/students.routes.js';
+import webinarsRoutes from './routes/webinars.routes.js';
+import teacherReviewsRoutes from './routes/teacherReviews.routes.js';
 import adminsRoutes from './routes/admins.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import notFound from './middleware/notFound.js';
@@ -40,6 +42,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/owners', ownersRoutes);
 app.use('/api/teachers', teachersRoutes);
 app.use('/api/students', studentsRoutes);
+app.use('/api/webinars', webinarsRoutes);
+app.use('/api/teacher-reviews', teacherReviewsRoutes);
 app.use('/api/admins', adminsRoutes);
 app.use('/api/admin', adminRoutes);
 

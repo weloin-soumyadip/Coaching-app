@@ -6,8 +6,11 @@ import { validate } from '../middleware/validate.js';
 import { studentSelfPatchSchema } from '../schemas/students.schemas.js';
 import { passwordChangeSchema } from '../schemas/common.js';
 import { updateMe, deleteMe, changePassword } from '../controllers/students.controller.js';
+import { getStudentDashboard } from '../controllers/dashboard.controller.js';
 
 const router = Router();
+
+router.get('/dashboard', protect, requireRole('student'), asyncHandler(getStudentDashboard));
 
 router.patch(
   '/me',
